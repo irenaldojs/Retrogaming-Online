@@ -21,7 +21,7 @@ export const DualSandbox: React.FC = () => {
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
     const roomId = roomIdRef.current;
 
     // Connect Client 1

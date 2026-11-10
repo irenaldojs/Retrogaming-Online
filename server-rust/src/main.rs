@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
@@ -17,7 +17,7 @@ use uuid::Uuid;
 // --- Modelos de Dados e Protocolo ---
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all_fields = "camelCase")]
 pub enum ClientMessage {
     Input { dir: f32 },
     #[serde(rename = "matchmaking:join")]
@@ -28,10 +28,12 @@ pub enum ClientMessage {
     Ping { timestamp: u64 },
     #[serde(rename = "chat:send")]
     Chat { text: String },
+    #[serde(rename = "game:restart")]
+    GameRestart { room_id: String },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all_fields = "camelCase")]
 pub enum ServerMessage {
     #[serde(rename = "connected")]
     Connected { client_id: String },
@@ -44,7 +46,16 @@ pub enum ServerMessage {
     #[serde(rename = "pong")]
     Pong { client_timestamp: u64, server_timestamp: u64 },
     #[serde(rename = "chat:message")]
-    ChatMessage { from: String, text: String, role: String },
+    ChatMessage { message: ChatMessagePayload },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ChatMessagePayload {
+    pub id: String,
+    pub from: String,
+    pub role: String,
+    pub text: String,
+    pub timestamp: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -57,7 +68,12 @@ pub struct GameState {
     pub ball_vy: f32,
     pub score_p1: u32,
     pub score_p2: u32,
+    #[serde(rename = "rallyCount")]
+    pub rally_count: u32,
+    #[serde(rename = "maxScore")]
+    pub max_score: u32,
     pub status: String, // "waiting", "playing", "finished"
+    pub winner: Option<String>,
     pub tick: u64,
 }
 
@@ -72,7 +88,10 @@ impl GameState {
             ball_vy: 3.2,
             score_p1: 0,
             score_p2: 0,
+            rally_count: 0,
+            max_score: 5,
             status: "playing".to_string(),
+            winner: None,
             tick: 0,
         }
     }
@@ -107,6 +126,7 @@ impl GameState {
             && self.ball_y + 12.0 >= self.p1_y
             && self.ball_y <= self.p1_y + 90.0
         {
+            self.rally_count += 1;
             let paddle_center = self.p1_y + 45.0;
             let offset = ((self.ball_y + 6.0 - paddle_center) / 45.0).clamp(-1.0, 1.0);
             self.ball_vx = (self.ball_vx.abs() * 1.05).min(14.0);
@@ -121,6 +141,7 @@ impl GameState {
             && self.ball_y + 12.0 >= self.p2_y
             && self.ball_y <= self.p2_y + 90.0
         {
+            self.rally_count += 1;
             let paddle_center = self.p2_y + 45.0;
             let offset = ((self.ball_y + 6.0 - paddle_center) / 45.0).clamp(-1.0, 1.0);
             self.ball_vx = -(self.ball_vx.abs() * 1.05).min(14.0);
@@ -133,6 +154,7 @@ impl GameState {
             self.score_p2 += 1;
             if self.score_p2 >= 5 {
                 self.status = "finished".to_string();
+                self.winner = Some("p2".to_string());
             } else {
                 self.reset_ball(true);
             }
@@ -140,6 +162,7 @@ impl GameState {
             self.score_p1 += 1;
             if self.score_p1 >= 5 {
                 self.status = "finished".to_string();
+                self.winner = Some("p1".to_string());
             } else {
                 self.reset_ball(false);
             }
@@ -160,6 +183,7 @@ pub struct GameRoom {
     pub id: String,
     pub state: Arc<Mutex<GameState>>,
     pub inputs: Arc<Mutex<(f32, f32)>>, // (p1_dir, p2_dir)
+    pub clients: Arc<Mutex<HashMap<String, String>>>,
     pub tx: broadcast::Sender<String>,
 }
 
@@ -168,6 +192,7 @@ impl GameRoom {
         let (tx, _) = broadcast::channel::<String>(100);
         let state = Arc::new(Mutex::new(GameState::new()));
         let inputs = Arc::new(Mutex::new((0.0f32, 0.0f32)));
+        let clients = Arc::new(Mutex::new(HashMap::new()));
 
         // Spawna loop de simulação a 30 FPS (33.3 ms) - Travado a 30 quadros
         let state_clone = Arc::clone(&state);
@@ -182,12 +207,40 @@ impl GameRoom {
                 let mut game = state_clone.lock().await;
                 game.update(p1, p2);
 
-                let json = serde_json::to_string(&*game).unwrap();
+                let json = serde_json::json!({
+                    "type": "game:tick",
+                    "tick": game.tick,
+                    "state": &*game,
+                }).to_string();
                 let _ = tx_clone.send(json);
             }
         });
 
-        Self { id, state, inputs, tx }
+        Self { id, state, inputs, clients, tx }
+    }
+
+    pub async fn add_client(&self, client_id: String) -> String {
+        let mut clients = self.clients.lock().await;
+        let role = if !clients.values().any(|role| role == "p1") {
+            "p1"
+        } else if !clients.values().any(|role| role == "p2") {
+            "p2"
+        } else {
+            "spectator"
+        };
+        clients.insert(client_id, role.to_string());
+        role.to_string()
+    }
+
+    pub async fn remove_client(&self, client_id: &str) {
+        if let Some(role) = self.clients.lock().await.remove(client_id) {
+            let mut inputs = self.inputs.lock().await;
+            if role == "p1" {
+                inputs.0 = 0.0;
+            } else if role == "p2" {
+                inputs.1 = 0.0;
+            }
+        }
     }
 }
 
@@ -252,7 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Aceita conexões WebSocket
-    while let Ok((stream, addr)) = listener.accept().await {
+    while let Ok((stream, _addr)) = listener.accept().await {
         let rooms = Arc::clone(&rooms);
         let queue = Arc::clone(&queue);
 
@@ -283,7 +336,7 @@ async fn handle_connection(
     let _ = ws_tx.send(Message::Text(welcome.into())).await;
 
     // Tarefa para enviar mensagens para o WebSocket
-    let mut ws_tx_task = tokio::spawn(async move {
+    let ws_tx_task = tokio::spawn(async move {
         while let Some(msg) = client_rx.recv().await {
             if ws_tx.send(Message::Text(msg.into())).await.is_err() {
                 break;
@@ -291,19 +344,41 @@ async fn handle_connection(
         }
     });
 
-    // Entra na sala global como espectador por padrão
+    // Os dois primeiros clientes entram como jogadores; os demais como espectadores.
     let default_room = {
         let r = rooms.lock().await;
         r.get("global-arena").cloned()
     };
 
-    let mut current_room = default_room;
-    let mut current_role = "spectator".to_string();
+    let current_room = default_room;
+    let current_role = if let Some(room) = current_room.as_ref() {
+        room.add_client(client_id.clone()).await
+    } else {
+        "spectator".to_string()
+    };
+
+    if let Some(room) = current_room.as_ref() {
+        let state = room.state.lock().await.clone();
+        let clients = room.clients.lock().await;
+        let spectator_count = clients.values().filter(|role| role.as_str() == "spectator").count();
+        let joined = serde_json::json!({
+            "type": "room:joined",
+            "roomId": room.id,
+            "roomName": "Retro Arena (Rust)",
+            "role": current_role,
+            "p1Name": "Player 1",
+            "p2Name": "Player 2",
+            "spectatorCount": spectator_count,
+            "state": state,
+            "challengerQueue": [],
+        });
+        let _ = client_tx.send(joined.to_string());
+    }
 
     // Tarefa de streaming de estado da sala
-    let mut broadcast_rx = current_room.as_ref().map(|r| r.tx.subscribe());
+    let broadcast_rx = current_room.as_ref().map(|r| r.tx.subscribe());
     let client_tx_clone = client_tx.clone();
-    let mut stream_task = tokio::spawn(async move {
+    let stream_task = tokio::spawn(async move {
         if let Some(mut rx) = broadcast_rx {
             while let Ok(state_json) = rx.recv().await {
                 if client_tx_clone.send(state_json).is_err() {
@@ -352,16 +427,34 @@ async fn handle_connection(
                 }
                 ClientMessage::Chat { text } => {
                     let chat = serde_json::to_string(&ServerMessage::ChatMessage {
-                        from: client_id.clone(),
-                        text,
-                        role: current_role.clone(),
+                        message: ChatMessagePayload {
+                            id: Uuid::new_v4().to_string(),
+                            from: client_id.clone(),
+                            text,
+                            role: current_role.clone(),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64,
+                        },
                     }).unwrap();
-                    let _ = client_tx.send(chat);
+                    if let Some(room) = current_room.as_ref() {
+                        let _ = room.tx.send(chat);
+                    }
+                }
+                ClientMessage::GameRestart { room_id } => {
+                    if let Some(room) = current_room.as_ref().filter(|room| room.id == room_id) {
+                        *room.state.lock().await = GameState::new();
+                        *room.inputs.lock().await = (0.0, 0.0);
+                    }
                 }
             }
         }
     }
 
+    if let Some(room) = current_room {
+        room.remove_client(&client_id).await;
+    }
     ws_tx_task.abort();
     stream_task.abort();
 }

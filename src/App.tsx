@@ -40,6 +40,8 @@ import {
 } from 'lucide-react';
 
 export default function App() {
+  const rustServerMode = import.meta.env.VITE_GAME_SERVER === 'rust';
+
   // Navigation & View Mode
   const [activeTab, setActiveTab] = useState<'online' | 'offline' | 'sandbox' | 'rust'>('online');
   const [showMatchmakerModal, setShowMatchmakerModal] = useState<boolean>(false);
@@ -128,12 +130,14 @@ export default function App() {
 
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}`;
+      const wsUrl = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         setIsConnected(true);
+        if (rustServerMode) return;
+
         // Automatically join room from URL query param (?room=...) or default to global-arena
         const params = new URLSearchParams(window.location.search);
         const targetRoom = params.get('room') || 'global-arena';
@@ -581,26 +585,30 @@ export default function App() {
                   CONECTAR 2º NAVEGADOR
                 </button>
 
-                <button
-                  onClick={() => setShowMatchmakerModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs tracking-wider shadow-lg shadow-cyan-500/25 transition active:scale-95"
-                >
-                  <Swords className="w-4 h-4" />
-                  PAREAMENTO RÁPIDO (1V1)
-                </button>
+                {!rustServerMode && (
+                  <>
+                    <button
+                      onClick={() => setShowMatchmakerModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs tracking-wider shadow-lg shadow-cyan-500/25 transition active:scale-95"
+                    >
+                      <Swords className="w-4 h-4" />
+                      PAREAMENTO RÁPIDO (1V1)
+                    </button>
 
-                <button
-                  onClick={() => setShowLobbyBrowser(!showLobbyBrowser)}
-                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition"
-                >
-                  <Users className="w-4 h-4 text-cyan-400" />
-                  {showLobbyBrowser ? 'OCULTAR SALAS' : 'LISTA DE SALAS'}
-                </button>
+                    <button
+                      onClick={() => setShowLobbyBrowser(!showLobbyBrowser)}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition"
+                    >
+                      <Users className="w-4 h-4 text-cyan-400" />
+                      {showLobbyBrowser ? 'OCULTAR SALAS' : 'LISTA DE SALAS'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
             {/* Optional Room Browser Drawer */}
-            {showLobbyBrowser && (
+            {!rustServerMode && showLobbyBrowser && (
               <LobbyBrowser
                 rooms={rooms}
                 currentRoomId={currentRoomId}
@@ -718,19 +726,21 @@ export default function App() {
       </main>
 
       {/* Matchmaking Modal */}
-      <MatchmakerModal
-        isOpen={showMatchmakerModal}
-        onClose={() => setShowMatchmakerModal(false)}
-        nickname={nickname}
-        onNicknameChange={setNickname}
-        inQueue={inQueue}
-        queuePosition={queuePosition}
-        totalInQueue={totalInQueue}
-        onJoinQueue={handleJoinQueue}
-        onLeaveQueue={handleLeaveQueue}
-        matchedOpponent={matchedOpponent}
-        matchCountdown={matchCountdown}
-      />
+      {!rustServerMode && (
+        <MatchmakerModal
+          isOpen={showMatchmakerModal}
+          onClose={() => setShowMatchmakerModal(false)}
+          nickname={nickname}
+          onNicknameChange={setNickname}
+          inQueue={inQueue}
+          queuePosition={queuePosition}
+          totalInQueue={totalInQueue}
+          onJoinQueue={handleJoinQueue}
+          onLeaveQueue={handleLeaveQueue}
+          matchedOpponent={matchedOpponent}
+          matchCountdown={matchCountdown}
+        />
+      )}
 
       {/* Share / Multi-browser Modal */}
       <ShareModal
