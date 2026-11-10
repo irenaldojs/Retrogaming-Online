@@ -24,6 +24,7 @@ import { SpectatorHud } from './components/SpectatorHud.js';
 import { DualSandbox } from './components/DualSandbox.js';
 import { RustCodeViewer } from './components/RustCodeViewer.js';
 import { ShareModal } from './components/ShareModal.js';
+import gameConfig from '../game-config.json';
 import {
   Gamepad2,
   Wifi,
@@ -81,12 +82,12 @@ export default function App() {
 
   // Online Authoritative Game State
   const [onlineGameState, setOnlineGameState] = useState<GameState>({
-    p1_y: 255,
-    p2_y: 255,
-    ball_x: 400,
-    ball_y: 300,
-    ball_vx: 5.0,
-    ball_vy: 3.2,
+    p1_y: (gameConfig.height - gameConfig.paddleHeight) / 2,
+    p2_y: (gameConfig.height - gameConfig.paddleHeight) / 2,
+    ball_x: gameConfig.width / 2,
+    ball_y: gameConfig.height / 2,
+    ball_vx: gameConfig.initialSpeedX,
+    ball_vy: gameConfig.initialSpeedY,
     score_p1: 0,
     score_p2: 0,
     status: 'waiting',
@@ -97,12 +98,12 @@ export default function App() {
   // Offline Engine State
   const [botDifficulty, setBotDifficulty] = useState<BotDifficulty>('medium');
   const [offlineGameState, setOfflineGameState] = useState<GameState>({
-    p1_y: 255,
-    p2_y: 255,
-    ball_x: 400,
-    ball_y: 300,
-    ball_vx: 5.0,
-    ball_vy: 3.2,
+    p1_y: (gameConfig.height - gameConfig.paddleHeight) / 2,
+    p2_y: (gameConfig.height - gameConfig.paddleHeight) / 2,
+    ball_x: gameConfig.width / 2,
+    ball_y: gameConfig.height / 2,
+    ball_vx: gameConfig.initialSpeedX,
+    ball_vy: gameConfig.initialSpeedY,
     score_p1: 0,
     score_p2: 0,
     status: 'playing',
@@ -136,11 +137,23 @@ export default function App() {
 
       ws.onopen = () => {
         setIsConnected(true);
-        if (rustServerMode) return;
-
-        // Automatically join room from URL query param (?room=...) or default to global-arena
         const params = new URLSearchParams(window.location.search);
         const targetRoom = params.get('room') || 'global-arena';
+        if (rustServerMode) {
+          if (targetRoom !== 'global-arena') {
+            ws.send(
+              JSON.stringify({
+                type: 'room:join',
+                roomId: targetRoom,
+                nickname,
+                asSpectator: false,
+              })
+            );
+          }
+          return;
+        }
+
+        // Automatically join room from URL query param (?room=...) or default to global-arena
         ws.send(
           JSON.stringify({
             type: 'room:join',
@@ -183,10 +196,18 @@ export default function App() {
 
             case 'room:player_joined':
               setSpectatorCount(msg.spectatorCount);
+              if (msg.role === 'p1') setP1Name(msg.name);
+              if (msg.role === 'p2') setP2Name(msg.name);
               break;
 
             case 'room:player_left':
               setSpectatorCount(msg.spectatorCount);
+              if (msg.role === 'p1') setP1Name('Aguardando...');
+              if (msg.role === 'p2') setP2Name('Aguardando...');
+              break;
+
+            case 'room:challenger_queue':
+              setChallengerQueue(msg.challengerQueue);
               break;
 
             case 'game:tick':
@@ -205,6 +226,7 @@ export default function App() {
 
             case 'matchmaking:matched':
               soundFx.playMatchFound();
+              setInQueue(false);
               setMatchedOpponent(msg.opponentName);
               setUserRole(msg.role);
               let cd = 3;
@@ -460,7 +482,7 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-black tracking-widest text-white">RETROGAMES HUB</h1>
                 <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-                  STATE-SYNC 30Hz // 30 FPS LOCK
+                  STATE-SYNC {gameConfig.tickRateHz}Hz // CANVAS INTERPOLADO
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden sm:block">
@@ -585,30 +607,26 @@ export default function App() {
                   CONECTAR 2º NAVEGADOR
                 </button>
 
-                {!rustServerMode && (
-                  <>
-                    <button
-                      onClick={() => setShowMatchmakerModal(true)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs tracking-wider shadow-lg shadow-cyan-500/25 transition active:scale-95"
-                    >
-                      <Swords className="w-4 h-4" />
-                      PAREAMENTO RÁPIDO (1V1)
-                    </button>
+                <button
+                  onClick={() => setShowMatchmakerModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs tracking-wider shadow-lg shadow-cyan-500/25 transition active:scale-95"
+                >
+                  <Swords className="w-4 h-4" />
+                  PAREAMENTO RÁPIDO (1V1)
+                </button>
 
-                    <button
-                      onClick={() => setShowLobbyBrowser(!showLobbyBrowser)}
-                      className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition"
-                    >
-                      <Users className="w-4 h-4 text-cyan-400" />
-                      {showLobbyBrowser ? 'OCULTAR SALAS' : 'LISTA DE SALAS'}
-                    </button>
-                  </>
-                )}
+                <button
+                  onClick={() => setShowLobbyBrowser(!showLobbyBrowser)}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700 transition"
+                >
+                  <Users className="w-4 h-4 text-cyan-400" />
+                  {showLobbyBrowser ? 'OCULTAR SALAS' : 'LISTA DE SALAS'}
+                </button>
               </div>
             </div>
 
             {/* Optional Room Browser Drawer */}
-            {!rustServerMode && showLobbyBrowser && (
+            {showLobbyBrowser && (
               <LobbyBrowser
                 rooms={rooms}
                 currentRoomId={currentRoomId}
@@ -642,7 +660,7 @@ export default function App() {
                     <span>= Mover sua raquete</span>
                   </div>
                   <div className="text-slate-500">
-                    O servidor autoritativo calcula física a 60 Hz e retransmite o estado
+                    O servidor autoritativo simula a {gameConfig.tickRateHz} Hz; o cliente interpola os estados
                   </div>
                 </div>
               </div>
@@ -726,8 +744,7 @@ export default function App() {
       </main>
 
       {/* Matchmaking Modal */}
-      {!rustServerMode && (
-        <MatchmakerModal
+      <MatchmakerModal
           isOpen={showMatchmakerModal}
           onClose={() => setShowMatchmakerModal(false)}
           nickname={nickname}
@@ -739,8 +756,7 @@ export default function App() {
           onLeaveQueue={handleLeaveQueue}
           matchedOpponent={matchedOpponent}
           matchCountdown={matchCountdown}
-        />
-      )}
+      />
 
       {/* Share / Multi-browser Modal */}
       <ShareModal

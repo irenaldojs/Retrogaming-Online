@@ -137,7 +137,7 @@ export const DualSandbox: React.FC = () => {
             </h3>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Dois clientes WebSocket separados comunicando-se com o mesmo servidor dedicado a 60 Hz.
+            Dois clientes WebSocket separados comunicando-se com o servidor dedicado a 30 Hz com interpolação no canvas.
           </p>
         </div>
 

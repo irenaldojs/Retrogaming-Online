@@ -12,6 +12,7 @@ import dotenv from 'dotenv';
 import { GameRoom } from './server/gameRoom.js';
 import { Matchmaker } from './server/matchmaker.js';
 import { ClientMessage, ServerMessage, RoomSummary, ServerStats, PlayerRole } from './src/types/game.js';
+import gameConfig from './game-config.json';
 
 dotenv.config();
 
@@ -141,8 +142,8 @@ function broadcastServerStats() {
     connectedClients: connectedClients.size,
     totalMatchesPlayed,
     serverUptimeSeconds: Math.floor((Date.now() - serverStartTime) / 1000),
-    tickRateHz: 30.0,
-    avgTickDurationMs: 0.5,
+    tickRateHz: gameConfig.tickRateHz,
+    avgTickDurationMs: 1000 / gameConfig.tickRateHz,
     memoryUsageMb: Math.round((process.memoryUsage().heapUsed / 1024 / 1024) * 10) / 10,
   };
 
@@ -286,8 +287,8 @@ wss.on('connection', (ws: WebSocket) => {
           const roomId = clientToRoom.get(clientId);
           if (roomId) {
             const room = rooms.get(roomId);
-            if (room) {
-              room.handleInput(clientId, msg.dir);
+            if (room && !room.handleInput(clientId, msg.dir)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Input inválido ou cliente sem papel de jogador.' }));
             }
           }
           break;
@@ -298,12 +299,32 @@ wss.on('connection', (ws: WebSocket) => {
           if (roomId) {
             const room = rooms.get(roomId);
             if (room) {
+              const text = msg.text.trim();
+              if (!text || [...text].length > 100) {
+                ws.send(
+                  JSON.stringify({
+                    type: 'error',
+                    message: !text
+                      ? 'A mensagem não pode estar vazia.'
+                      : 'O chat aceita até 100 caracteres.',
+                  })
+                );
+                break;
+              }
+              const isRoomMember =
+                room.p1?.id === clientId ||
+                room.p2?.id === clientId ||
+                room.spectators.has(clientId);
+              if (!isRoomMember) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Entre na sala para usar o chat.' }));
+                break;
+              }
               const clientInfo = connectedClients.get(clientId);
               const senderName = clientInfo?.name || 'Jogador';
               let role: PlayerRole = 'spectator';
               if (room.p1?.id === clientId) role = 'p1';
               if (room.p2?.id === clientId) role = 'p2';
-              room.broadcastChat(senderName, role, msg.text);
+              room.broadcastChat(senderName, role, text);
             }
           }
           break;
@@ -314,6 +335,14 @@ wss.on('connection', (ws: WebSocket) => {
           if (roomId) {
             const room = rooms.get(roomId);
             if (room) {
+              const isRoomMember =
+                room.p1?.id === clientId ||
+                room.p2?.id === clientId ||
+                room.spectators.has(clientId);
+              if (!isRoomMember) {
+                ws.send(JSON.stringify({ type: 'error', message: 'Entre na sala para reagir.' }));
+                break;
+              }
               const clientInfo = connectedClients.get(clientId);
               const senderName = clientInfo?.name || 'Espectador';
               room.broadcast({
@@ -339,6 +368,13 @@ wss.on('connection', (ws: WebSocket) => {
                   name: `${msg.nickname} (Fila de Desafio)`,
                   spectatorCount: room.spectators.size,
                 });
+              } else {
+                ws.send(
+                  JSON.stringify({
+                    type: 'error',
+                    message: 'A fila de desafios é exclusiva para espectadores; talvez você já esteja na fila.',
+                  })
+                );
               }
             }
           }
@@ -351,6 +387,13 @@ wss.on('connection', (ws: WebSocket) => {
             const room = rooms.get(roomId);
             if (room && (room.p1?.id === clientId || room.p2?.id === clientId)) {
               room.restartGame();
+            } else {
+              ws.send(
+                JSON.stringify({
+                  type: 'error',
+                  message: 'Somente jogadores podem reiniciar a partida na sala atual.',
+                })
+              );
             }
           }
           break;
@@ -379,8 +422,8 @@ app.get('/api/health', (_req, res) => {
     status: 'online',
     uptimeSeconds: Math.floor((Date.now() - serverStartTime) / 1000),
     version: '1.0.0-state-sync',
-    authoritativeHz: 30,
-    fpsLock: 30,
+    authoritativeHz: gameConfig.tickRateHz,
+    fpsLock: gameConfig.tickRateHz,
   });
 });
 
@@ -391,8 +434,8 @@ app.get('/api/stats', (_req, res) => {
     queueLength: matchmaker.getQueueLength(),
     totalMatchesPlayed,
     serverUptimeSeconds: Math.floor((Date.now() - serverStartTime) / 1000),
-    tickRate: 30,
-    fpsLock: 30,
+    tickRate: gameConfig.tickRateHz,
+    fpsLock: gameConfig.tickRateHz,
   });
 });
 
@@ -423,7 +466,9 @@ async function startServer() {
 
   server.listen(PORT, () => {
     console.log(`🎮 RetroGaming Dedicated Server rodando na porta ${PORT}`);
-    console.log(`⚡ WebSocket Server ativo em ws://0.0.0.0:${PORT} (30Hz / 30 FPS Lock)`);
+    console.log(
+      `⚡ WebSocket Server ativo em ws://0.0.0.0:${PORT} (${gameConfig.tickRateHz}Hz / ${gameConfig.tickRateHz} FPS)`
+    );
   });
 }
 

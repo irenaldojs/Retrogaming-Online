@@ -1,1 +1,1 @@
-/workspaces/Retrogaming-Online/server-rust/target/release/pong-multiplayer-server: /workspaces/Retrogaming-Online/server-rust/src/main.rs
+/workspaces/Retrogaming-Online/server-rust/target/release/pong-multiplayer-server: /workspaces/Retrogaming-Online/server-rust/src/../../game-config.json /workspaces/Retrogaming-Online/server-rust/src/game.rs /workspaces/Retrogaming-Online/server-rust/src/main.rs

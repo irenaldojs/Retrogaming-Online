@@ -4,6 +4,7 @@
  */
 
 import { GameState, GameEvent } from '../types/game.js';
+import gameConfig from '../../game-config.json';
 
 export type BotDifficulty = 'easy' | 'medium' | 'hard' | 'nightmare' | 'pvp';
 
@@ -17,13 +18,13 @@ export class OfflineEngine {
   private onStateChange: (state: GameState) => void;
   private onEvent?: (event: GameEvent) => void;
 
-  public static readonly WIDTH = 800;
-  public static readonly HEIGHT = 600;
-  public static readonly PADDLE_HEIGHT = 90;
-  public static readonly PADDLE_WIDTH = 12;
-  public static readonly P1_X = 25;
-  public static readonly P2_X = 763;
-  public static readonly BALL_SIZE = 12;
+  public static readonly WIDTH = gameConfig.width;
+  public static readonly HEIGHT = gameConfig.height;
+  public static readonly PADDLE_HEIGHT = gameConfig.paddleHeight;
+  public static readonly PADDLE_WIDTH = gameConfig.paddleWidth;
+  public static readonly P1_X = gameConfig.p1X;
+  public static readonly P2_X = gameConfig.p2X;
+  public static readonly BALL_SIZE = gameConfig.ballSize;
 
   constructor(
     difficulty: BotDifficulty = 'medium',
@@ -35,12 +36,12 @@ export class OfflineEngine {
     this.onEvent = onEvent;
 
     this.state = {
-      p1_y: 255,
-      p2_y: 255,
+      p1_y: (OfflineEngine.HEIGHT - OfflineEngine.PADDLE_HEIGHT) / 2,
+      p2_y: (OfflineEngine.HEIGHT - OfflineEngine.PADDLE_HEIGHT) / 2,
       ball_x: 400,
       ball_y: 300,
-      ball_vx: 9.0,
-      ball_vy: 5.8,
+      ball_vx: gameConfig.initialSpeedX,
+      ball_vy: gameConfig.initialSpeedY,
       score_p1: 0,
       score_p2: 0,
       status: 'playing',
@@ -77,8 +78,8 @@ export class OfflineEngine {
     this.state.score_p2 = 0;
     this.state.status = 'playing';
     this.state.winner = null;
-    this.state.p1_y = 255;
-    this.state.p2_y = 255;
+    this.state.p1_y = (OfflineEngine.HEIGHT - OfflineEngine.PADDLE_HEIGHT) / 2;
+    this.state.p2_y = (OfflineEngine.HEIGHT - OfflineEngine.PADDLE_HEIGHT) / 2;
     this.resetBall(Math.random() > 0.5);
     this.onStateChange({ ...this.state });
   }
@@ -86,12 +87,12 @@ export class OfflineEngine {
   private loop = (time: number) => {
     this.animFrameId = requestAnimationFrame(this.loop);
 
-    // Lock offline loop to 30 FPS (33.33ms)
+    const frameInterval = 1000 / gameConfig.tickRateHz;
     const elapsed = time - this.lastTime;
-    if (elapsed < 33) {
+    if (elapsed < frameInterval) {
       return;
     }
-    this.lastTime = time - (elapsed % 33.33);
+    this.lastTime = time - (elapsed % frameInterval);
 
     if (this.state.status === 'playing') {
       this.updatePhysics();
@@ -106,10 +107,16 @@ export class OfflineEngine {
       this.p2Input = this.calculateBotInput();
     }
 
-    // 2. Paddle movement (Speed: 12.0 px per tick at 30 FPS)
+    // 2. Paddle movement
     const maxPaddleY = OfflineEngine.HEIGHT - OfflineEngine.PADDLE_HEIGHT;
-    this.state.p1_y = Math.max(0, Math.min(maxPaddleY, this.state.p1_y + this.p1Input * 12.0));
-    this.state.p2_y = Math.max(0, Math.min(maxPaddleY, this.state.p2_y + this.p2Input * 12.0));
+    this.state.p1_y = Math.max(
+      0,
+      Math.min(maxPaddleY, this.state.p1_y + this.p1Input * gameConfig.paddleSpeed)
+    );
+    this.state.p2_y = Math.max(
+      0,
+      Math.min(maxPaddleY, this.state.p2_y + this.p2Input * gameConfig.paddleSpeed)
+    );
 
     // 3. Ball movement
     this.state.ball_x += this.state.ball_vx;
@@ -137,9 +144,12 @@ export class OfflineEngine {
     ) {
       const center = this.state.p1_y + OfflineEngine.PADDLE_HEIGHT / 2;
       const offset = (this.state.ball_y + OfflineEngine.BALL_SIZE / 2 - center) / (OfflineEngine.PADDLE_HEIGHT / 2);
-      const newSpeed = Math.min(24.0, Math.abs(this.state.ball_vx) * 1.05);
+      const newSpeed = Math.min(
+        gameConfig.maxBallSpeed,
+        Math.abs(this.state.ball_vx) * gameConfig.speedIncrease
+      );
       this.state.ball_vx = newSpeed;
-      this.state.ball_vy = offset * 7.5 + this.p1Input * 2.2;
+      this.state.ball_vy = offset * gameConfig.bounceAngle + this.p1Input * gameConfig.paddleSpin;
       this.state.ball_x = p1Right;
       this.state.lastHitBy = 'p1';
       this.state.rallyCount++;
@@ -163,9 +173,12 @@ export class OfflineEngine {
     ) {
       const center = this.state.p2_y + OfflineEngine.PADDLE_HEIGHT / 2;
       const offset = (this.state.ball_y + OfflineEngine.BALL_SIZE / 2 - center) / (OfflineEngine.PADDLE_HEIGHT / 2);
-      const newSpeed = Math.min(24.0, Math.abs(this.state.ball_vx) * 1.05);
+      const newSpeed = Math.min(
+        gameConfig.maxBallSpeed,
+        Math.abs(this.state.ball_vx) * gameConfig.speedIncrease
+      );
       this.state.ball_vx = -newSpeed;
-      this.state.ball_vy = offset * 7.5 + this.p2Input * 2.2;
+      this.state.ball_vy = offset * gameConfig.bounceAngle + this.p2Input * gameConfig.paddleSpin;
       this.state.ball_x = OfflineEngine.P2_X - OfflineEngine.BALL_SIZE;
       this.state.lastHitBy = 'p2';
       this.state.rallyCount++;
@@ -245,8 +258,11 @@ export class OfflineEngine {
   private resetBall(serveLeft: boolean) {
     this.state.ball_x = OfflineEngine.WIDTH / 2;
     this.state.ball_y = OfflineEngine.HEIGHT / 2;
-    this.state.ball_vx = serveLeft ? -9.0 : 9.0;
-    this.state.ball_vy = (Math.random() > 0.5 ? 1 : -1) * (3.5 + Math.random() * 3.5);
+    this.state.ball_vx = serveLeft ? -gameConfig.initialSpeedX : gameConfig.initialSpeedX;
+    this.state.ball_vy =
+      (Math.random() > 0.5 ? 1 : -1) *
+      (gameConfig.resetSpeedYMin +
+        Math.random() * (gameConfig.resetSpeedYMax - gameConfig.resetSpeedYMin));
     this.state.rallyCount = 0;
   }
 

@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameState, GameEvent, PlayerRole } from '../types/game.js';
 import confetti from 'canvas-confetti';
+import gameConfig from '../../game-config.json';
 
 interface SparkParticle {
   x: number;
@@ -59,8 +60,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const sparksRef = useRef<SparkParticle[]>([]);
   const trailRef = useRef<Array<{ x: number; y: number; alpha: number }>>([]);
   const reactionsRef = useRef<FloatingReaction[]>([]);
-  const lastStateRef = useRef<GameState>(state);
-  lastStateRef.current = state;
+  const previousStateRef = useRef<GameState>(state);
+  const latestStateRef = useRef<GameState>(state);
+  const latestStateTimeRef = useRef(performance.now());
+
+  useEffect(() => {
+    previousStateRef.current = latestStateRef.current;
+    latestStateRef.current = state;
+    latestStateTimeRef.current = performance.now();
+  }, [state]);
 
   // Track key states
   const keysPressed = useRef<{ up: boolean; down: boolean }>({ up: false, down: false });
@@ -235,7 +243,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
   }, [role, controlScheme, onSendInput, onSendInputP2]);
 
-  // Main rendering animation loop (Locked to 30 FPS)
+  // Render between authoritative snapshots at the display refresh rate.
   useEffect(() => {
     let animId: number;
     const canvas = canvasRef.current;
@@ -243,37 +251,39 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const targetFps = 30;
-    const frameInterval = 1000 / targetFps; // 33.33ms per frame
-    let lastTime = performance.now();
+    const snapshotInterval = 1000 / gameConfig.tickRateHz;
 
     const render = (currentTime: number) => {
       animId = requestAnimationFrame(render);
-
-      // Frame rate lock to 30 FPS
-      const elapsed = currentTime - lastTime;
-      if (elapsed < frameInterval) {
-        return;
-      }
-      lastTime = currentTime - (elapsed % frameInterval);
-
-      const s = lastStateRef.current;
+      const previous = previousStateRef.current;
+      const latest = latestStateRef.current;
+      const alpha = Math.min(
+        1,
+        Math.max(0, (currentTime - latestStateTimeRef.current) / snapshotInterval)
+      );
+      const s: GameState = {
+        ...latest,
+        p1_y: previous.p1_y + (latest.p1_y - previous.p1_y) * alpha,
+        p2_y: previous.p2_y + (latest.p2_y - previous.p2_y) * alpha,
+        ball_x: previous.ball_x + (latest.ball_x - previous.ball_x) * alpha,
+        ball_y: previous.ball_y + (latest.ball_y - previous.ball_y) * alpha,
+      };
 
       // 1. Clear background
       ctx.fillStyle = '#0a0d14';
-      ctx.fillRect(0, 0, 800, 600);
+      ctx.fillRect(0, 0, gameConfig.width, gameConfig.height);
 
       // Subtle grid
       ctx.strokeStyle = '#141c2c';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      for (let x = 0; x <= 800; x += 40) {
+      for (let x = 0; x <= gameConfig.width; x += 40) {
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, 600);
+        ctx.lineTo(x, gameConfig.height);
       }
-      for (let y = 0; y <= 600; y += 40) {
+      for (let y = 0; y <= gameConfig.height; y += 40) {
         ctx.moveTo(0, y);
-        ctx.lineTo(800, y);
+        ctx.lineTo(gameConfig.width, y);
       }
       ctx.stroke();
 
@@ -282,8 +292,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.strokeStyle = '#22324e';
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.moveTo(400, 0);
-      ctx.lineTo(400, 600);
+      ctx.moveTo(gameConfig.width / 2, 0);
+      ctx.lineTo(gameConfig.width / 2, gameConfig.height);
       ctx.stroke();
       ctx.setLineDash([]);
 
@@ -291,7 +301,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.strokeStyle = '#1b263b';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(400, 300, 70, 0, Math.PI * 2);
+      ctx.arc(gameConfig.width / 2, gameConfig.height / 2, 70, 0, Math.PI * 2);
       ctx.stroke();
 
       // 3. Ball motion trail
@@ -340,10 +350,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.shadowColor = '#00f0ff';
       ctx.shadowBlur = 14;
       ctx.fillStyle = '#00f0ff';
-      ctx.fillRect(25, s.p1_y, 12, 90);
+      ctx.fillRect(gameConfig.p1X, s.p1_y, gameConfig.paddleWidth, gameConfig.paddleHeight);
       // Paddle core highlight
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(28, s.p1_y + 4, 6, 82);
+      ctx.fillRect(
+        gameConfig.p1X + 3,
+        s.p1_y + 4,
+        gameConfig.paddleWidth - 6,
+        gameConfig.paddleHeight - 8
+      );
       ctx.restore();
 
       // 7. Draw Player 2 Paddle (Neon Pink)
@@ -351,10 +366,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.shadowColor = '#ff007f';
       ctx.shadowBlur = 14;
       ctx.fillStyle = '#ff007f';
-      ctx.fillRect(763, s.p2_y, 12, 90);
+      ctx.fillRect(gameConfig.p2X, s.p2_y, gameConfig.paddleWidth, gameConfig.paddleHeight);
       // Paddle core highlight
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(766, s.p2_y + 4, 6, 82);
+      ctx.fillRect(
+        gameConfig.p2X + 3,
+        s.p2_y + 4,
+        gameConfig.paddleWidth - 6,
+        gameConfig.paddleHeight - 8
+      );
       ctx.restore();
 
       // 8. Draw Ball (Neon Yellow/White)
@@ -362,9 +382,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.shadowColor = '#facc15';
       ctx.shadowBlur = 18;
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(s.ball_x, s.ball_y, 12, 12);
+      ctx.fillRect(s.ball_x, s.ball_y, gameConfig.ballSize, gameConfig.ballSize);
       ctx.fillStyle = '#fef08a';
-      ctx.fillRect(s.ball_x + 2, s.ball_y + 2, 8, 8);
+      ctx.fillRect(
+        s.ball_x + 2,
+        s.ball_y + 2,
+        gameConfig.ballSize - 4,
+        gameConfig.ballSize - 4
+      );
       ctx.restore();
 
       // 9. Score Board
@@ -489,8 +514,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           <canvas
             ref={canvasRef}
             id="stage"
-            width={800}
-            height={600}
+            width={gameConfig.width}
+            height={gameConfig.height}
             className="w-full max-w-[800px] aspect-[4/3] block bg-black"
           />
 
@@ -517,10 +542,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             </span>
           </div>
 
-          {/* 30 FPS Lock Badge in Top Right */}
+          {/* Interpolation badge */}
           <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-950/80 backdrop-blur border border-emerald-500/40 text-[10px] font-mono text-emerald-400 font-bold">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>30 FPS (TRAVADO)</span>
+            <span>INTERPOLAÇÃO {gameConfig.tickRateHz} Hz</span>
           </div>
 
           {/* Quick Restart button if finished */}

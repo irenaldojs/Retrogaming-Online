@@ -138,7 +138,7 @@ export const MatchmakerModal: React.FC<MatchmakerModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 text-xs text-slate-400 space-y-1.5">
               <div className="flex items-center gap-2 text-slate-300">
                 <Shield className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Simulação 100% Server-Authoritative a 60 Hz</span>
+                <span>Simulação server-authoritative com atualização interpolada</span>
               </div>
               <div className="flex items-center gap-2 text-slate-300">
                 <Users className="w-3.5 h-3.5 text-pink-400" />

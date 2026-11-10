@@ -113,6 +113,7 @@ export type ServerMessage =
   | { type: 'room:list'; rooms: RoomSummary[] }
   | { type: 'room:player_joined'; role: PlayerRole; name: string; spectatorCount: number }
   | { type: 'room:player_left'; role: PlayerRole; name: string; spectatorCount: number }
+  | { type: 'room:challenger_queue'; challengerQueue: string[] }
   | { type: 'game:tick'; state: GameState; tick: number }
   | { type: 'game:event'; event: GameEvent }
   | { type: 'pong'; clientTimestamp: number; serverTimestamp: number }

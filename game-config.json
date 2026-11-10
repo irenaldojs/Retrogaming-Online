@@ -1,0 +1,19 @@
+{
+  "tickRateHz": 30,
+  "width": 800,
+  "height": 600,
+  "paddleHeight": 90,
+  "paddleWidth": 12,
+  "p1X": 25,
+  "p2X": 763,
+  "ballSize": 12,
+  "initialSpeedX": 9,
+  "initialSpeedY": 5.8,
+  "maxBallSpeed": 24,
+  "paddleSpeed": 12,
+  "paddleSpin": 2.2,
+  "bounceAngle": 7.5,
+  "speedIncrease": 1.05,
+  "resetSpeedYMin": 3.5,
+  "resetSpeedYMax": 7
+}

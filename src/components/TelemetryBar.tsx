@@ -6,6 +6,7 @@
 import React from 'react';
 import { ServerStats } from '../types/game.js';
 import { Wifi, Activity, Server, Users, Clock, Cpu } from 'lucide-react';
+import gameConfig from '../../game-config.json';
 
 interface TelemetryBarProps {
   ping: number | null;
@@ -69,7 +70,7 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
             <span>TICK:</span>
             <span className="text-cyan-300 font-bold">{serverStats.tickRateHz.toFixed(1)} Hz</span>
             <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold">
-              30 FPS LOCK
+              ESTADOS INTERPOLADOS
             </span>
           </div>
 
@@ -103,9 +104,9 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
       {!isOnlineMode && (
         <div className="text-slate-400 text-xs flex items-center gap-2">
           <span>Tick local:</span>
-          <span className="text-emerald-400 font-bold">30.0 FPS</span>
+          <span className="text-emerald-400 font-bold">{gameConfig.tickRateHz}.0 Hz</span>
           <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold">
-            TRAVADO A 30 QUADROS
+            SIMULAÇÃO LOCAL
           </span>
         </div>
       )}

@@ -24,7 +24,7 @@ serde_json = "1.0"
 uuid = { version = "1.7", features = ["v4", "serde"] }
 `;
 
-  const mainRsCode = `//! Servidor Multiplayer em Rust com Tokio & WebSockets (60 Hz State-Sync)
+  const mainRsCode = `//! Servidor Multiplayer em Rust com Tokio & WebSockets (30 Hz State-Sync)
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::{sync::{Arc, Mutex}, time::Duration};
@@ -56,15 +56,15 @@ impl GameState {
         Self {
             p1_y: 250.0, p2_y: 250.0,
             ball_x: 400.0, ball_y: 300.0,
-            ball_vx: 5.0, ball_vy: 3.2,
+            ball_vx: 9.0, ball_vy: 5.8,
             score_p1: 0, score_p2: 0,
         }
     }
 
     fn update(&mut self, p1_input: f32, p2_input: f32) {
         // Atualiza raquetes
-        self.p1_y = (self.p1_y + p1_input * 7.0).clamp(0.0, 510.0);
-        self.p2_y = (self.p2_y + p2_input * 7.0).clamp(0.0, 510.0);
+        self.p1_y = (self.p1_y + p1_input * 12.0).clamp(0.0, 510.0);
+        self.p2_y = (self.p2_y + p2_input * 12.0).clamp(0.0, 510.0);
 
         // Atualiza bola
         self.ball_x += self.ball_vx;
@@ -109,12 +109,12 @@ async fn main() {
     let listener = TcpListener::bind("0.0.0.0:8080").await.unwrap();
     println!("🎮 Servidor Pong Multiplayer rodando em ws://0.0.0.0:8080");
 
-    // Loop de física centralizado a 60 FPS (16.6ms)
+    // Loop de física centralizado a 30 Hz (33.3ms)
     let state_clone = Arc::clone(&state);
     let inputs_clone = Arc::clone(&inputs);
     let tx_clone = tx.clone();
     tokio::spawn(async move {
-        let mut timer = interval(Duration::from_millis(16));
+        let mut timer = interval(Duration::from_millis(33));
         loop {
             timer.tick().await;
             let (p1, p2) = *inputs_clone.lock().unwrap();
@@ -145,7 +145,7 @@ async fn main() {
 
             println!("Cliente conectado: Slot {}", player_id);
 
-            // Envio contínuo 60Hz do estado para o cliente
+            // Envio contínuo do estado autoritativo para o cliente
             let send_task = tokio::spawn(async move {
                 while let Ok(msg) = rx.recv().await {
                     if ws_tx.send(Message::Text(msg.into())).await.is_err() {
@@ -354,7 +354,7 @@ git push -u origin main`}
             <div className="p-3 bg-slate-900 border border-pink-500/30 rounded-xl">
               <div className="font-bold text-pink-400 mb-1">2. Loop Autoritativo 30 Hz</div>
               <p className="text-slate-400">
-                O servidor roda a simulação física a cada 33.3ms (30 FPS Lock). Clientes apenas enviam inputs leves
+                O servidor simula a cada 33.3ms (30 Hz). O canvas interpola entre snapshots sem travar a renderização
                 (dir: -1, 0, 1) evitando trapaças e divergências.
               </p>
             </div>

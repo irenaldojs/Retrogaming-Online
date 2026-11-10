@@ -17,7 +17,7 @@ O ecossistema divide-se em três partes essenciais:
 2. **Servidor Multiplayer Centralizado (Rust + Tokio):**
    * Processo em Rust leve e concorrente.
    * Não processa renderização de tela ou gráficos (economizando memória e GPU).
-   * Mantém o loop de simulação física e estado determinístico a **60 Ticks/segundo (60 FPS)**.
+   * Mantém o loop de simulação física e estado determinístico a **30 ticks por segundo (30 Hz)**.
    * Gerencia slots de jogadores (Player 1, Player 2) e retransmite (*broadcast*) o estado atual do jogo para todos os **espectadores** conectados na sala.
 
 3. **Protocolo de Rede (JSON ou Byte Vectors):**
@@ -36,7 +36,7 @@ O ecossistema divide-se em três partes essenciais:
 ```
 * `dir`: `-1.0` (Para cima / Left), `1.0` (Para baixo / Right), `0.0` (Parado).
 
-### Servidor $\rightarrow$ Cliente (60 Hz Broadcast)
+### Servidor $\rightarrow$ Cliente (30 Hz Broadcast)
 ```json
 {
   "p1_y": 250.0,
@@ -162,12 +162,12 @@ async fn main() {
     let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
     println!("🎮 Servidor Pong Multiplayer rodando em ws://127.0.0.1:8080");
 
-    // Loop de física centralizado a 60 FPS
+    // Loop de física centralizado a 30 Hz
     let state_clone = Arc::clone(&state);
     let inputs_clone = Arc::clone(&inputs);
     let tx_clone = tx.clone();
     tokio::spawn(async move {
-        let mut timer = interval(Duration::from_millis(16)); // ~60 Hz
+        let mut timer = interval(Duration::from_millis(33)); // ~30 Hz
         loop {
             timer.tick().await;
             let (p1, p2) = *inputs_clone.lock().unwrap();

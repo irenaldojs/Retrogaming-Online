@@ -112,7 +112,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                 Cole o link acima na barra de endereços e pressione <strong>Enter</strong>.
               </li>
               <li>
-                O segundo navegador conectará via WebSocket automaticamente no slot do <strong>Player 2</strong> ou como <strong>Espectador</strong>, recebendo a física a 60 Hz!
+                O segundo navegador conectará via WebSocket automaticamente no slot do <strong>Player 2</strong> ou como <strong>Espectador</strong>, recebendo estados interpolados.
               </li>
             </ol>
           </div>

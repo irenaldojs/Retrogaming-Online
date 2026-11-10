@@ -1,6 +1,6 @@
 {
   "name": "RetroGaming Hub - Multiplayer State-Sync Engine",
-  "description": "High-performance server-authoritative multiplayer game engine with dedicated 60Hz tick simulation, real-time matchmaking, room lobby, spectator broadcast, and latency telemetry.",
+  "description": "Server-authoritative multiplayer engine with shared 30Hz physics, interpolated rendering, matchmaking, room lobby, spectators, and latency telemetry.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

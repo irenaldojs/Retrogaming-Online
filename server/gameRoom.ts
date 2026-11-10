@@ -5,6 +5,7 @@
 
 import { WebSocket } from 'ws';
 import { GameState, GameEvent, PlayerRole, ServerMessage, ChatMessage } from '../src/types/game.js';
+import gameConfig from '../game-config.json';
 
 export interface RoomClient {
   ws: WebSocket;
@@ -30,21 +31,26 @@ export class GameRoom {
   public state: GameState;
   public tickNumber: number = 0;
   private intervalHandle: NodeJS.Timeout | null = null;
+  private countdownHandle: NodeJS.Timeout | null = null;
   private onEmptyCallback: (roomId: string) => void;
   private onGameOverCallback?: (winner: 'p1' | 'p2', room: GameRoom) => void;
 
-  // Constants matching the architecture guide (800x600 canvas)
-  public static readonly WIDTH = 800;
-  public static readonly HEIGHT = 600;
-  public static readonly PADDLE_HEIGHT = 90;
-  public static readonly PADDLE_WIDTH = 12;
-  public static readonly P1_X = 25;
-  public static readonly P2_X = 763;
-  public static readonly BALL_SIZE = 12;
-  public static readonly INITIAL_SPEED_X = 9.0;
-  public static readonly INITIAL_SPEED_Y = 5.8;
-  public static readonly MAX_BALL_SPEED = 24.0;
-  public static readonly PADDLE_SPEED = 12.0;
+  public static readonly WIDTH = gameConfig.width;
+  public static readonly HEIGHT = gameConfig.height;
+  public static readonly PADDLE_HEIGHT = gameConfig.paddleHeight;
+  public static readonly PADDLE_WIDTH = gameConfig.paddleWidth;
+  public static readonly P1_X = gameConfig.p1X;
+  public static readonly P2_X = gameConfig.p2X;
+  public static readonly BALL_SIZE = gameConfig.ballSize;
+  public static readonly INITIAL_SPEED_X = gameConfig.initialSpeedX;
+  public static readonly INITIAL_SPEED_Y = gameConfig.initialSpeedY;
+  public static readonly MAX_BALL_SPEED = gameConfig.maxBallSpeed;
+  public static readonly PADDLE_SPEED = gameConfig.paddleSpeed;
+  public static readonly PADDLE_SPIN = gameConfig.paddleSpin;
+  public static readonly BOUNCE_ANGLE = gameConfig.bounceAngle;
+  public static readonly SPEED_INCREASE = gameConfig.speedIncrease;
+  public static readonly RESET_SPEED_Y_MIN = gameConfig.resetSpeedYMin;
+  public static readonly RESET_SPEED_Y_MAX = gameConfig.resetSpeedYMax;
 
   constructor(
     id: string,
@@ -61,8 +67,8 @@ export class GameRoom {
     this.onEmptyCallback = onEmpty;
 
     this.state = {
-      p1_y: 255,
-      p2_y: 255,
+      p1_y: (GameRoom.HEIGHT - GameRoom.PADDLE_HEIGHT) / 2,
+      p2_y: (GameRoom.HEIGHT - GameRoom.PADDLE_HEIGHT) / 2,
       ball_x: GameRoom.WIDTH / 2,
       ball_y: GameRoom.HEIGHT / 2,
       ball_vx: GameRoom.INITIAL_SPEED_X,
@@ -160,6 +166,10 @@ export class GameRoom {
 
       // If an active player left during game, pause or promote next challenger
       if (role === 'p1' || role === 'p2') {
+        if (this.countdownHandle) {
+          clearInterval(this.countdownHandle);
+          this.countdownHandle = null;
+        }
         if (this.challengerQueue.length > 0) {
           this.promoteChallenger(role);
         } else {
@@ -178,16 +188,20 @@ export class GameRoom {
     return role;
   }
 
-  public handleInput(id: string, dir: number) {
-    const clampedDir = Math.max(-1, Math.min(1, dir));
+  public handleInput(id: string, dir: number): boolean {
+    if (!Number.isFinite(dir) || ![-1, 0, 1].includes(dir)) return false;
     if (this.p1 && this.p1.id === id) {
-      this.p1.currentInput = clampedDir;
+      this.p1.currentInput = dir;
+      return true;
     } else if (this.p2 && this.p2.id === id) {
-      this.p2.currentInput = clampedDir;
+      this.p2.currentInput = dir;
+      return true;
     }
+    return false;
   }
 
   public queueChallenger(id: string, name: string): boolean {
+    if (!this.spectators.has(id)) return false;
     if (this.challengerQueue.some((c) => c.id === id)) return false;
     this.challengerQueue.push({ id, name });
     return true;
@@ -223,6 +237,17 @@ export class GameRoom {
   }
 
   public startCountdown() {
+    if (this.countdownHandle) {
+      clearInterval(this.countdownHandle);
+      this.countdownHandle = null;
+    }
+    if (!this.p1 || !this.p2) {
+      this.state.status = 'waiting';
+      this.state.countdown = undefined;
+      this.broadcastTick();
+      return;
+    }
+
     this.state.status = 'countdown';
     let count = 3;
     this.state.countdown = count;
@@ -231,6 +256,14 @@ export class GameRoom {
     this.broadcastTick();
 
     const timer = setInterval(() => {
+      if (!this.p1 || !this.p2) {
+        clearInterval(timer);
+        this.countdownHandle = null;
+        this.state.status = 'waiting';
+        this.state.countdown = undefined;
+        this.broadcastTick();
+        return;
+      }
       count -= 1;
       this.state.countdown = count;
       if (count > 0) {
@@ -238,21 +271,23 @@ export class GameRoom {
         this.broadcastTick();
       } else {
         clearInterval(timer);
+        this.countdownHandle = null;
         this.state.status = 'playing';
         this.state.countdown = undefined;
         this.broadcastEvent({ type: 'countdown_tick', count: 0 });
         this.startTickLoop();
       }
     }, 1000);
+    this.countdownHandle = timer;
   }
 
   public startTickLoop() {
     if (this.intervalHandle) return;
 
-    // 30 Ticks per second (~33.33 ms) - Game locked to 30 FPS
+    // Run the authoritative simulation at the shared 30 Hz rate.
     this.intervalHandle = setInterval(() => {
       this.tick();
-    }, 33);
+    }, 1000 / gameConfig.tickRateHz);
   }
 
   public stopTickLoop() {
@@ -308,10 +343,14 @@ export class GameRoom {
       const clampedOffset = Math.max(-1, Math.min(1, hitOffset));
 
       // Reverse horizontal velocity and accelerate gradually
-      const newSpeed = Math.min(GameRoom.MAX_BALL_SPEED, Math.abs(this.state.ball_vx) * 1.05);
+      const newSpeed = Math.min(
+        GameRoom.MAX_BALL_SPEED,
+        Math.abs(this.state.ball_vx) * GameRoom.SPEED_INCREASE
+      );
       this.state.ball_vx = newSpeed;
       // Add spin/angle based on paddle offset + paddle movement
-      this.state.ball_vy = clampedOffset * 7.5 + p1_input * 2.2;
+      this.state.ball_vy =
+        clampedOffset * GameRoom.BOUNCE_ANGLE + p1_input * GameRoom.PADDLE_SPIN;
       this.state.ball_x = p1Right;
       this.state.lastHitBy = 'p1';
       this.state.rallyCount++;
@@ -337,9 +376,13 @@ export class GameRoom {
       const hitOffset = (this.state.ball_y + ballRadius - paddleCenter) / (GameRoom.PADDLE_HEIGHT / 2);
       const clampedOffset = Math.max(-1, Math.min(1, hitOffset));
 
-      const newSpeed = Math.min(GameRoom.MAX_BALL_SPEED, Math.abs(this.state.ball_vx) * 1.05);
+      const newSpeed = Math.min(
+        GameRoom.MAX_BALL_SPEED,
+        Math.abs(this.state.ball_vx) * GameRoom.SPEED_INCREASE
+      );
       this.state.ball_vx = -newSpeed;
-      this.state.ball_vy = clampedOffset * 7.5 + p2_input * 2.2;
+      this.state.ball_vy =
+        clampedOffset * GameRoom.BOUNCE_ANGLE + p2_input * GameRoom.PADDLE_SPIN;
       this.state.ball_x = GameRoom.P2_X - GameRoom.BALL_SIZE;
       this.state.lastHitBy = 'p2';
       this.state.rallyCount++;
@@ -386,7 +429,7 @@ export class GameRoom {
       }
     }
 
-    // 6. Broadcast 60Hz State to P1, P2 and Spectators
+    // Broadcast the authoritative state to all room members.
     this.broadcastTick();
   }
 
@@ -394,7 +437,10 @@ export class GameRoom {
     this.state.ball_x = GameRoom.WIDTH / 2;
     this.state.ball_y = GameRoom.HEIGHT / 2;
     const initialVx = serveLeft ? -GameRoom.INITIAL_SPEED_X : GameRoom.INITIAL_SPEED_X;
-    const initialVy = (Math.random() > 0.5 ? 1 : -1) * (2.0 + Math.random() * 2.0);
+    const initialVy =
+      (Math.random() > 0.5 ? 1 : -1) *
+      (GameRoom.RESET_SPEED_Y_MIN +
+        Math.random() * (GameRoom.RESET_SPEED_Y_MAX - GameRoom.RESET_SPEED_Y_MIN));
     this.state.ball_vx = initialVx;
     this.state.ball_vy = initialVy;
     this.state.rallyCount = 0;
@@ -420,13 +466,21 @@ export class GameRoom {
 
   public restartGame() {
     this.resetMatch();
-    this.startCountdown();
+    if (this.p1 && this.p2) {
+      this.startCountdown();
+    } else {
+      this.broadcastTick();
+    }
   }
 
   public resetMatch() {
     this.stopTickLoop();
-    this.state.p1_y = 255;
-    this.state.p2_y = 255;
+    if (this.countdownHandle) {
+      clearInterval(this.countdownHandle);
+      this.countdownHandle = null;
+    }
+    this.state.p1_y = (GameRoom.HEIGHT - GameRoom.PADDLE_HEIGHT) / 2;
+    this.state.p2_y = (GameRoom.HEIGHT - GameRoom.PADDLE_HEIGHT) / 2;
     this.state.score_p1 = 0;
     this.state.score_p2 = 0;
     this.state.winner = null;
@@ -468,7 +522,7 @@ export class GameRoom {
       id: Math.random().toString(36).substring(2, 9),
       from,
       role,
-      text,
+      text: [...text.trim()].slice(0, 100).join(''),
       timestamp: Date.now(),
     };
     this.broadcast({
