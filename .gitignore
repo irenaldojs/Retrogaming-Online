@@ -1,9 +1,33 @@
 node_modules/
 build/
 dist/
+target/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
 public/retrogaming-hub.tar.gz
+
+# Compiled binaries and artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.bin
+*.class
+*.jar
+*.war
+*.wasm
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.tgz
+*.7z
+*.rar
