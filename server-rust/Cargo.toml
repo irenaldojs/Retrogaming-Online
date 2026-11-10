@@ -1,0 +1,17 @@
+[package]
+name = "pong-multiplayer-server"
+version = "0.2.0"
+edition = "2021"
+authors = ["RetroGaming Hub Team"]
+description = "Server-Authoritative Dedicated 60Hz Multiplayer & Matchmaking Server in Rust & Tokio"
+
+[dependencies]
+tokio = { version = "1.36", features = ["full"] }
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.7", features = ["v4", "serde"] }
+parking_lot = "0.12"
+log = "0.4"
+env_logger = "0.11"
